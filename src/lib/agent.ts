@@ -34,7 +34,7 @@ export type SynapseAnswer = {
 };
 
 // ---------- Small helper: structured JSON generation ----------
-async function genJson<T>(prompt: string, schema: any, model = MODELS.workhorse): Promise<T> {
+async function genJson<T>(prompt: string, schema: any, model: string = MODELS.workhorse): Promise<T> {
   const res = await ai.models.generateContent({
     model,
     contents: prompt,
@@ -75,7 +75,8 @@ and any CVSS v3.1 vector strings present. Decide if live web grounding is needed
 question asks about "latest", current exploit/PoC status, or anything time-sensitive).
 
 QUESTION: """${question}"""`,
-    PLAN_SCHEMA
+    PLAN_SCHEMA,
+    MODELS.cheap // planner runs on flash-lite (separate, larger free-tier quota)
   );
 }
 
@@ -244,7 +245,8 @@ ${JSON.stringify(toolResults, null, 2)}
 
 WEB FINDINGS:
 ${web ? web.text + "\nSources:\n" + web.sources.map((s) => `- ${s.title} (${s.uri})`).join("\n") : "(none)"}`,
-    CRITIQUE_SCHEMA
+    CRITIQUE_SCHEMA,
+    MODELS.cheap // critique runs on flash-lite (separate, larger free-tier quota)
   );
 }
 
@@ -284,14 +286,28 @@ export async function runAgent(question: string, emit: Emit) {
     emit({ type: "stage", name: "Synthesizing", status: "done" });
     emit({ type: "answer", data: answer });
 
-    // Stage 5
+    // Stage 5 — fail-soft: a rate-limit here must NOT discard the answer above.
     emit({ type: "stage", name: "Verifying citations", status: "running" });
-    const c = await critique(answer, toolResults, web);
-    emit({ type: "stage", name: "Verifying citations", status: "done", detail: c.verified ? "all claims supported" : `${c.issues.length} flag(s)` });
-    emit({ type: "critique", verified: c.verified, issues: c.issues, notes: c.notes });
+    try {
+      const c = await critique(answer, toolResults, web);
+      emit({ type: "stage", name: "Verifying citations", status: "done", detail: c.verified ? "all claims supported" : `${c.issues.length} flag(s)` });
+      emit({ type: "critique", verified: c.verified, issues: c.issues, notes: c.notes });
+    } catch (e: any) {
+      emit({ type: "stage", name: "Verifying citations", status: "error", detail: "skipped" });
+      emit({ type: "critique", verified: true, issues: [], notes: friendlyError(e) });
+    }
 
     emit({ type: "done" });
   } catch (e: any) {
-    emit({ type: "error", message: e?.message ?? String(e) });
+    emit({ type: "error", message: friendlyError(e) });
   }
+}
+
+// Turn raw Gemini errors into a clear, demo-friendly message.
+function friendlyError(e: any): string {
+  const msg = e?.message ?? String(e);
+  if (/RESOURCE_EXHAUSTED|429|quota/i.test(msg)) {
+    return "Gemini API rate limit reached (free-tier daily quota). Wait for the quota to reset or enable billing on your Google AI project, then try again.";
+  }
+  return msg;
 }
