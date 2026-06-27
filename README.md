@@ -7,6 +7,8 @@ grounded in real CISA KEV and MITRE ATT&CK data instead of the model's imaginati
 Built for the GeeksforGeeks × Google **Build with AI (UAE)** workshop with **Google Antigravity**,
 the **Gemini API**, and **Next.js**.
 
+![SYNAPSE](screenshots/synapse.png)
+
 ---
 
 ## The problem
