@@ -1,0 +1,94 @@
+{
+  "_meta": "Curated CWE -> detection/hunt/mitigation knowledge base for SYNAPSE Defender view. Maps weakness classes to ATT&CK techniques, hunt logic, and mitigating controls. Extend freely.",
+  "cwe": {
+    "CWE-502": {
+      "weakness": "Deserialization of Untrusted Data",
+      "attack_techniques": ["T1190 Exploit Public-Facing Application", "T1059 Command and Scripting Interpreter"],
+      "detection_guidance": "Alert on application/server processes spawning shells (cmd.exe, /bin/sh, powershell) shortly after deserialization endpoints are hit. Watch for unexpected child processes of Java/.NET/app-server runtimes.",
+      "hunt_queries": [
+        "process_parent IN ('java','w3wp.exe','tomcat*','node') AND process_name IN ('cmd.exe','powershell.exe','/bin/sh','/bin/bash')",
+        "http.request.body CONTAINS ('rO0AB','AAEAAAD/////','__proto__','java.lang.Runtime')"
+      ],
+      "mitigations": ["M1048 Application Isolation/Sandboxing", "M1038 Execution Prevention", "Patch to fixed version; disable risky deserialization, use allow-list type filtering"]
+    },
+    "CWE-20": {
+      "weakness": "Improper Input Validation",
+      "attack_techniques": ["T1190 Exploit Public-Facing Application"],
+      "detection_guidance": "Baseline normal request shapes for the affected endpoint; alert on anomalous payload sizes, encodings, and parameter values. Correlate WAF blocks with successful 200s on the same path.",
+      "hunt_queries": [
+        "url.path = '<vuln-endpoint>' AND (http.status = 200) AND request.bytes > p99_baseline",
+        "waf.action='block' followed_by http.status IN (200,500) same src_ip within 5m"
+      ],
+      "mitigations": ["M1056 Pre-compromise input validation", "M1050 Exploit Protection", "Virtual-patch via WAF rule until vendor patch applied"]
+    },
+    "CWE-78": {
+      "weakness": "OS Command Injection",
+      "attack_techniques": ["T1059 Command and Scripting Interpreter", "T1190 Exploit Public-Facing Application"],
+      "detection_guidance": "Detect web/app service accounts executing shell commands, especially recon (whoami, id, ifconfig) or download utilities (curl, wget, certutil).",
+      "hunt_queries": [
+        "process_user IN (web_service_accounts) AND process_name IN ('whoami','id','curl','wget','certutil','nslookup')",
+        "http.query CONTAINS (';','|','`','$(','&&')"
+      ],
+      "mitigations": ["M1038 Execution Prevention", "M1026 Privileged Account Management", "Run app under least-privilege service account"]
+    },
+    "CWE-22": {
+      "weakness": "Path Traversal",
+      "attack_techniques": ["T1190 Exploit Public-Facing Application", "T1083 File and Directory Discovery"],
+      "detection_guidance": "Alert on '../' sequences, absolute paths, or encoded traversal in URL/params; watch for web process reading sensitive files (/etc/passwd, web.config, .env).",
+      "hunt_queries": [
+        "url.raw MATCHES '(\\.\\./|%2e%2e%2f|..\\\\)'",
+        "file.path IN ('/etc/passwd','*/web.config','*/.env') AND process IN (web_service)"
+      ],
+      "mitigations": ["M1056 Input validation/canonicalization", "M1022 Restrict file/directory permissions"]
+    },
+    "CWE-287": {
+      "weakness": "Improper Authentication",
+      "attack_techniques": ["T1078 Valid Accounts", "T1190 Exploit Public-Facing Application"],
+      "detection_guidance": "Hunt for auth-bypass: successful access to privileged routes without a preceding successful login event; admin actions from never-before-seen sessions/IPs.",
+      "hunt_queries": [
+        "url.path MATCHES '/admin|/api/.*/config' AND NOT preceded_by auth.success same_session",
+        "auth.privileged_action=true AND src_ip NOT IN known_admin_ips"
+      ],
+      "mitigations": ["M1032 Multi-factor Authentication", "M1018 User Account Management", "M1030 Network Segmentation for admin planes"]
+    },
+    "CWE-416": {
+      "weakness": "Use After Free",
+      "attack_techniques": ["T1203 Exploitation for Client Execution", "T1190 Exploit Public-Facing Application"],
+      "detection_guidance": "Memory-corruption exploitation is hard to signature; rely on EDR exploit-protection telemetry (ROP/heap-spray), crashes followed by anomalous child processes, and post-exploit behavior.",
+      "hunt_queries": [
+        "edr.exploit_guard_event=true OR process.crash followed_by process.spawn same_parent within 60s"
+      ],
+      "mitigations": ["M1050 Exploit Protection (CFG/CET/ASLR)", "M1048 Sandboxing", "Patch promptly — exploitation is behavioral, not signature-friendly"]
+    },
+    "CWE-918": {
+      "weakness": "Server-Side Request Forgery (SSRF)",
+      "attack_techniques": ["T1190 Exploit Public-Facing Application", "T1552.005 Cloud Instance Metadata API"],
+      "detection_guidance": "Detect server making outbound requests to internal/metadata ranges (169.254.169.254, 10.0.0.0/8, link-local) driven by user-supplied URLs.",
+      "hunt_queries": [
+        "src=app_servers AND dst IN ('169.254.169.254','10.0.0.0/8','127.0.0.0/8') AND triggered_by user_input",
+        "http.request.url_param MATCHES 'https?://(169\\.254|localhost|127\\.|10\\.)'"
+      ],
+      "mitigations": ["M1037 Filter Network Traffic (egress allow-list)", "M1030 Network Segmentation", "Block IMDSv1; enforce IMDSv2"]
+    },
+    "CWE-94": {
+      "weakness": "Code Injection",
+      "attack_techniques": ["T1059 Command and Scripting Interpreter", "T1505.003 Web Shell"],
+      "detection_guidance": "Watch for new/modified script files in web roots (web shells), and interpreter processes evaluating dynamic input.",
+      "hunt_queries": [
+        "file.create IN (webroot_paths) AND file.ext IN ('.php','.jsp','.aspx','.asp') AND NOT by deploy_pipeline",
+        "process eval/exec with parent web_service"
+      ],
+      "mitigations": ["M1038 Execution Prevention", "M1045 Code Signing", "File-integrity monitoring on web roots"]
+    }
+  },
+  "default": {
+    "weakness": "Generic exploitation of a public-facing application",
+    "attack_techniques": ["T1190 Exploit Public-Facing Application"],
+    "detection_guidance": "Monitor the affected service for anomalous requests, new outbound connections, unexpected child processes, and new files in writable paths. Correlate vendor IoCs with EDR/SIEM telemetry.",
+    "hunt_queries": [
+      "process_parent IN (affected_service) AND process_name IN ('cmd.exe','powershell.exe','/bin/sh')",
+      "new outbound connection from affected_service to rare external destination"
+    ],
+    "mitigations": ["M1051 Update Software (apply vendor patch)", "M1037 Filter Network Traffic", "M1030 Network Segmentation", "M1050 Exploit Protection"]
+  }
+}

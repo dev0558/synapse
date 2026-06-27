@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* SYNAPSE uses a fixed light theme — do not auto-switch to dark. */
+
+body {
+  background: #f8fafc;
+  color: #0f172a;
+  font-family: var(--font-geist-sans), system-ui, Arial, Helvetica, sans-serif;
+}
